@@ -10,7 +10,10 @@ let
 
   paletteJSON = let
     generatedJSON = pkgs.runCommand "palette.json" { } ''
-      ${palette-generator}/bin/palette-generator ${cfg.polarity} ${cfg.image} $out
+      ${palette-generator}/bin/palette-generator \
+        "${cfg.polarity}" \
+        ${lib.escapeShellArg "${cfg.image}"} \
+        "$out"
     '';
     palette = importJSON generatedJSON;
     scheme = base16.mkSchemeAttrs palette;
@@ -52,7 +55,7 @@ in {
     polarity = mkOption {
       type = types.enum [ "either" "light" "dark" ];
       default = fromOs [ "polarity" ] "either";
-      description = mdDoc ''
+      description = ''
         Use this option to force a light or dark theme.
 
         By default we will select whichever is ranked better by the genetic
@@ -63,7 +66,7 @@ in {
 
     image = mkOption {
       type = types.coercedTo types.package toString types.path;
-      description = mdDoc ''
+      description = ''
         Wallpaper image.
 
         This is set as the background of your desktop environment, if possible,
@@ -88,10 +91,17 @@ in {
         internal = true;
         default = generatedScheme;
       };
+
+      fileTree = mkOption {
+        type = types.raw;
+        description = "The files storing the palettes in json and html.";
+        readOnly = true;
+        internal = true;
+      };
     };
 
     base16Scheme = mkOption {
-      description = mdDoc ''
+      description = ''
         A scheme following the base16 standard.
 
         This can be a path to a file, a string of YAML, or an attribute set.
@@ -110,7 +120,7 @@ in {
     };
 
     override = mkOption {
-      description = mdDoc ''
+      description = ''
         An override that will be applied to stylix.base16Scheme when generating
         lib.stylix.colors.
 
@@ -127,5 +137,31 @@ in {
     # https://github.com/SenchoPens/base16.nix/blob/b390e87cd404e65ab4d786666351f1292e89162a/README.md#theme-step-22
     lib.stylix.colors = (base16.mkSchemeAttrs cfg.base16Scheme).override override;
     lib.stylix.scheme = base16.mkSchemeAttrs cfg.base16Scheme;
+
+    stylix.generated.fileTree = {
+      # Making palette.json part of the system closure will protect it from
+      # garbage collection, so future configurations can be evaluated without
+      # having to generate the palette again. The generator is not kept, only
+      # the palette which came from it, so this uses very little disk space.
+      # The extra indirection should prevent the palette generator from running
+      # when the theme is manually specified. generated.json is necessary in
+      # the presence of overrides.
+      "stylix/generated.json".source = config.lib.stylix.scheme {
+        template = ./palette.json.mustache;
+        extension = ".json";
+      };
+
+      "stylix/palette.json".source = config.lib.stylix.colors {
+        template = ./palette.json.mustache;
+        extension = ".json";
+      };
+
+      # We also provide a HTML version which is useful for viewing the colors
+      # during development.
+      "stylix/palette.html".source = config.lib.stylix.colors {
+        template = ./palette.html.mustache;
+        extension = ".html";
+      };
+    };
   };
 }
